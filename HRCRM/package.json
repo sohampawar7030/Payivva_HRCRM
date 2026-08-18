@@ -1,0 +1,27 @@
+{
+  "name": "payivva-hrcrm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Payivva HRCRM - Human Resource & Company Resource Management System (React + Express Serverless + MySQL)",
+  "scripts": {
+    "dev": "node backend/server.js",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "db:setup": "node backend/db/setup.js",
+    "build:vercel": "npm --prefix frontend install && npm --prefix frontend run build && node scripts/prepare-dist.js",
+    "lint": "npm --prefix frontend run lint"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.4",
+    "nodemailer": "^6.9.16",
+    "pdfkit": "^0.15.2"
+  }
+}
