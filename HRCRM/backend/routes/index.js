@@ -15,6 +15,7 @@ import { notificationsController } from '../controllers/notificationsController.
 import { auditController } from '../controllers/auditController.js';
 import { settingsController } from '../controllers/settingsController.js';
 import { dashboardController } from '../controllers/dashboardController.js';
+import { siteController } from '../controllers/siteController.js';
 import { ROLES } from '../../shared/constants.js';
 
 const { WORKER, IT, DIRECTOR } = ROLES;
@@ -133,6 +134,11 @@ const letterSchema = Joi.object({
   extra: Joi.object().pattern(Joi.string(), Joi.any()).optional(),
 });
 
+const siteStatusSchema = Joi.object({
+  status: Joi.string().valid('running', 'stopped', 'on_hold').required().messages({ 'any.only': 'Status must be running, stopped or on_hold' }),
+  notes: Joi.string().max(1000).allow('', null),
+});
+
 // ===== Auth (public) =====
 router.post('/auth/login', authRateLimiter, validate(loginSchema), authController.login);
 router.get('/auth/onboarding', authController.onboardingInfo);
@@ -194,7 +200,8 @@ router.post('/salary/calculate-all', authenticate, requireRole(DIRECTOR), salary
 router.get('/salary/payrolls', authenticate, requireRole(...STAFF), salaryController.list);
 router.put('/salary/payrolls/:id', authenticate, requireRole(DIRECTOR), validate(payrollEditSchema), salaryController.updatePayroll);
 router.get('/salary/mine', authenticate, requireRole(WORKER), salaryController.my);
-router.get('/salary/status', authenticate, requireRole(...STAFF), salaryController.status);
+  router.get('/salary/status', authenticate, requireRole(...STAFF), salaryController.status);
+  router.get('/salary/site-analysis', authenticate, requireRole(DIRECTOR), salaryController.siteAnalysis);
 router.post('/salary/:id/finalize', authenticate, requireRole(DIRECTOR), salaryController.finalize);
 router.post('/salary/:id/generate-slip', authenticate, requireRole(...STAFF), salaryController.generateSlip);
 router.get('/salary/:id/slip', authenticate, requireRole(...ALL), salaryController.downloadSlip);
@@ -223,6 +230,10 @@ router.put('/notifications/read-all', authenticate, requireRole(...ALL), notific
 
 // ===== Audit logs =====
 router.get('/audit-logs', authenticate, requireRole(DIRECTOR), auditController.list);
+
+// ===== Sites (attendance hold control) =====
+router.get('/sites', authenticate, requireRole(...STAFF), siteController.list);
+router.put('/sites/:id/status', authenticate, requireRole(DIRECTOR), validate(siteStatusSchema), siteController.setStatus);
 
 // ===== Settings =====
 router.get('/settings', authenticate, requireRole(...ALL), settingsController.getAll);

@@ -5,6 +5,7 @@ import { leaveService } from '../services/leaveService.js';
 import { salaryService } from '../services/salaryService.js';
 import { documentService } from '../services/documentService.js';
 import { employeeService } from '../services/employeeService.js';
+import { siteService } from '../services/siteService.js';
 import { Errors } from '../utils/ApiError.js';
 
 export const dashboardController = {
@@ -45,6 +46,7 @@ export const dashboardController = {
     );
     const todayAttendance = await attendanceService.getTodaySummary();
     const monthlySummary = await monthlyAttendanceSummary();
+    const sites = await siteService.list();
 
     const payrollCounts = { draft: 0, finalized: 0, paid: 0 };
     for (const s of salaryStatus) payrollCounts[s.status] = s.cnt;
@@ -61,6 +63,7 @@ export const dashboardController = {
         todayPresent: todayAttendance.filter((a) => a.present).length,
         todayCheckedIn: todayAttendance.length,
         ...monthlySummary,
+        sitesOnHold: sites.filter((s) => s.status === 'on_hold').length,
         payroll: { ...payrollCounts, month, year },
       },
       todayAttendance,
@@ -118,6 +121,7 @@ export const dashboardController = {
     ]);
     const leaveRequests = await leaveService.list({ employeeId: req.user.employeeId, limit: 5 });
     const attendance = await attendanceService.getMonthlySummary(req.user.employeeId, year, month);
+    const siteWork = await attendanceService.getSiteWork(req.user.employeeId, year, month);
     const payroll = await salaryService.getPayroll(req.user.employeeId, year, month);
     const letters = await (await import('../services/letterService.js')).letterService.list({ employeeId: req.user.employeeId, limit: 5 });
     const documents = await documentService.listForEmployee(req.user.employeeId);
@@ -132,7 +136,8 @@ export const dashboardController = {
       canEdit: await employeeService.canEditProfile(req.user.employeeId, 'worker'),
       leaveBalances: leaveRows,
       leaveRequests: leaveRequests.rows,
-      attendance: { presentDays: attendance.presentDays, absentDays: attendance.absentDays, leaveDays: attendance.leaveDays, halfDays: attendance.halfDays, lateDays: attendance.lateDays, totalHours: attendance.totalHours },
+      attendance: { presentDays: attendance.presentDays, absentDays: attendance.absentDays, leaveDays: attendance.leaveDays, halfDays: attendance.halfDays, holdDays: attendance.holdDays || 0, lateDays: attendance.lateDays, totalHours: attendance.totalHours },
+      siteWork,
       payroll,
       letters: letters.rows,
       documents: documents.map((d) => ({ id: d.id, docType: d.docType, originalName: d.originalName, verificationStatus: d.verificationStatus, version: d.version })),
@@ -142,7 +147,7 @@ export const dashboardController = {
 };
 
 async function monthlyAttendanceSummary() {
-  const [rows] = await query(
+  const rows = await query(
     `SELECT DATE_FORMAT(CONVERT_TZ(checkin_time, '+00:00', '+05:30'), '%Y-%m') AS ym,
             COUNT(DISTINCT employeeId) AS checkedIn
      FROM attendance
@@ -150,6 +155,6 @@ async function monthlyAttendanceSummary() {
      GROUP BY ym`
   );
   const checkedIn = rows[0]?.checkedIn || 0;
-  const [total] = await query('SELECT COUNT(*) AS cnt FROM employees WHERE emp_status = ?', ['Active']);
+  const total = await query('SELECT COUNT(*) AS cnt FROM employees WHERE emp_status = ?', ['Active']);
   return { monthlyCheckedIn: checkedIn, monthlyNotCheckedIn: Math.max(0, (total[0]?.cnt || 0) - checkedIn) };
 }

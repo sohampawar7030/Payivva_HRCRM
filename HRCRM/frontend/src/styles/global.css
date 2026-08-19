@@ -1085,6 +1085,30 @@ table.table {
 .font-semibold { font-weight: 600; }
 .mono { font-family: Consolas, monospace; }
 
+/* ---------- Alerts ---------- */
+.alert {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+.alert-warning {
+  background: var(--warning-light);
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+.alert-success {
+  background: var(--success-light);
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.alert-info {
+  background: var(--info-light);
+  color: #155e75;
+  border: 1px solid #a5f3fc;
+}
+
 /* ---------- Tabs ---------- */
 .tabs {
   display: flex;

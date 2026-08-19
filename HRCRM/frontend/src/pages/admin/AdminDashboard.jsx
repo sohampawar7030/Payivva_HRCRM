@@ -34,11 +34,12 @@ export default function AdminDashboard() {
         <StatCard label="Pending Leaves" value={stats.pendingLeaves} icon="🌴" color="purple" />
       </div>
 
-      <div className="grid grid-4 mb-16">
+      <div className="grid mb-16" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
         <StatCard label="Checked In Today" value={stats.todayCheckedIn} icon="🕐" color="cyan" />
         <StatCard label="Present Today" value={stats.todayPresent} icon="✅" color="green" />
         <StatCard label="Monthly Checked In" value={stats.monthlyCheckedIn} sub={`${stats.monthlyNotCheckedIn} not checked in`} icon="📅" color="blue" />
-        <StatCard label="Payroll {month}/{year}" value={`${stats.payroll.draft} drafts`} sub={`${stats.payroll.finalized} finalized · ${stats.payroll.paid} paid`} icon="💰" color="green" />
+        <StatCard label="Sites On Hold" value={stats.sitesOnHold} sub="Attendance paused" icon="⏸️" color="red" />
+        <StatCard label={`Payroll ${stats.payroll.month}/${stats.payroll.year}`} value={`${stats.payroll.draft} drafts`} sub={`${stats.payroll.finalized} finalized · ${stats.payroll.paid} paid`} icon="💰" color="green" />
       </div>
 
       <div className="grid grid-2">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, apiError } from '../../api/client.js'
 import { useToast } from '../../context/ToastContext.jsx'
 import { LoadingPage } from '../../components/ui/Feedback.jsx'
+import { Modal } from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import { Field } from '../../components/ui/Form.jsx'
 import { formatDateTime } from '../../utils/format.js'
@@ -22,6 +23,9 @@ export default function AdminSettings() {
   const [salaryConfig, setSalaryConfig] = useState({})
   const [general, setGeneral] = useState({})
   const [users, setUsers] = useState(null)
+  const [sites, setSites] = useState(null)
+  const [editingSite, setEditingSite] = useState(null)
+  const [selectedStatus, setSelectedStatus] = useState('running')
   const [saving, setSaving] = useState(false)
 
   const load = () => {
@@ -32,10 +36,11 @@ export default function AdminSettings() {
       setSettings(res.data.settings || {})
     }).catch(() => {})
     api.get('/settings/user-access').then((res) => setUsers(res.data.rows)).catch(() => setUsers([]))
+    api.get('/sites').then((res) => setSites(res.data.rows)).catch(() => setSites([]))
   }
   useEffect(load, [])
 
-  if (!settings || !users) return <LoadingPage label="Loading settings..." />
+  if (!settings || !users || !sites) return <LoadingPage label="Loading settings..." />
 
   const save = async (path, payload) => {
     setSaving(true)
@@ -60,6 +65,29 @@ export default function AdminSettings() {
     }
   }
 
+  const openSiteEditor = (site) => {
+    setSelectedStatus(site.status)
+    setEditingSite(site)
+  }
+
+  const saveSiteStatus = async () => {
+    if (!editingSite || selectedStatus === editingSite.status) {
+      setEditingSite(null)
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await api.put(`/sites/${editingSite.id}/status`, { status: selectedStatus })
+      toast.success(res.message || 'Site status updated')
+      setEditingSite(null)
+      load()
+    } catch (err) {
+      toast.error(apiError(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -72,6 +100,7 @@ export default function AdminSettings() {
       <div className="tabs mb-16">
         <button className={`tab ${tab === 'company' ? 'active' : ''}`} onClick={() => setTab('company')}>Company</button>
         <button className={`tab ${tab === 'smtp' ? 'active' : ''}`} onClick={() => setTab('smtp')}>SMTP</button>
+        <button className={`tab ${tab === 'sites' ? 'active' : ''}`} onClick={() => setTab('sites')}>Sites</button>
         <button className={`tab ${tab === 'salary' ? 'active' : ''}`} onClick={() => setTab('salary')}>Salary Rules</button>
         <button className={`tab ${tab === 'general' ? 'active' : ''}`} onClick={() => setTab('general')}>General</button>
         <button className={`tab ${tab === 'access' ? 'active' : ''}`} onClick={() => setTab('access')}>User Access</button>
@@ -131,6 +160,126 @@ export default function AdminSettings() {
           </div>
         </div>
       )}
+
+      {tab === 'sites' && (
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Site Status — Attendance Control</div>
+            <div className="card-subtitle">Only Super Admin (Director) can change site status. Click "Edit Site" to set Running / Stopped / Hold.</div>
+          </div>
+          <div className="card-body" style={{ padding: 0 }}>
+            {sites.length === 0 && <div className="p-16 text-sm text-muted">No sites found.</div>}
+            <table className="table">
+              <thead>
+                <tr><th>Site</th><th>Code</th><th>Location</th><th>Workers</th><th>Status</th><th>Changed By / At</th><th>Action</th></tr>
+              </thead>
+              <tbody>
+                {sites.map((s) => (
+                  <tr key={s.id}>
+                    <td><strong>{s.site_name}</strong></td>
+                    <td className="text-sm">{s.site_code}</td>
+                    <td className="text-sm">{[s.city, s.state].filter(Boolean).join(', ') || '—'}</td>
+                    <td className="text-sm">{s.workerCount || 0}</td>
+                    <td>
+                      {s.status === 'running'
+                        ? <StatusBadge status="running" />
+                        : s.status === 'stopped'
+                          ? <StatusBadge status="stopped" />
+                          : <StatusBadge status="on_hold" />}
+                      {s.statusSource === 'legacy' && s.status !== 'running' && (
+                        <div className="text-xs text-muted mt-8">From site system ({s.legacyStatus})</div>
+                      )}
+                    </td>
+                    <td className="text-sm">
+                      {s.changedAt
+                        ? <>{s.changedByName || '—'}<div className="text-xs text-muted">{formatDateTime(s.changedAt)}</div></>
+                        : 'Never changed'}
+                    </td>
+                    <td>
+                      <button className="btn btn-secondary btn-sm" onClick={() => openSiteEditor(s)}>✏️ Edit Site</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        open={Boolean(editingSite)}
+        onClose={() => !saving && setEditingSite(null)}
+        title={editingSite ? `Edit Site: ${editingSite.site_name}` : 'Edit Site'}
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setEditingSite(null)} disabled={saving}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveSiteStatus} disabled={saving || selectedStatus === editingSite?.status}>
+              {saving ? 'Saving...' : 'Save Status'}
+            </button>
+          </>
+        }
+      >
+        {editingSite && (
+          <div>
+            <div className="text-sm" style={{ marginBottom: 12 }}>
+              <strong>{editingSite.site_name}</strong>
+              <div className="text-muted">{editingSite.site_code} · {[editingSite.city, editingSite.state].filter(Boolean).join(', ') || '—'} · {editingSite.workerCount || 0} workers</div>
+            </div>
+
+            <div className="badge-row mb-16" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`btn ${selectedStatus === 'running' ? 'btn-success' : 'btn-secondary'}`}
+                onClick={() => setSelectedStatus('running')}
+                style={{ flex: 1 }}
+              >
+                ▶ Running
+              </button>
+              <button
+                type="button"
+                className={`btn ${selectedStatus === 'stopped' ? 'btn-danger' : 'btn-secondary'}`}
+                onClick={() => setSelectedStatus('stopped')}
+                style={{ flex: 1 }}
+              >
+                ⏹ Stopped
+              </button>
+              <button
+                type="button"
+                className={`btn ${selectedStatus === 'on_hold' ? 'btn-warning' : 'btn-secondary'}`}
+                onClick={() => setSelectedStatus('on_hold')}
+                style={{ flex: 1 }}
+              >
+                ⏸ Hold
+              </button>
+            </div>
+
+            <div className="text-sm text-muted" style={{ marginBottom: 12 }}>
+              Current status:{' '}
+              {editingSite.status === 'running'
+                ? <StatusBadge status="running" />
+                : editingSite.status === 'stopped'
+                  ? <StatusBadge status="stopped" />
+                  : <StatusBadge status="on_hold" />}
+            </div>
+
+            {(selectedStatus === 'on_hold' || selectedStatus === 'stopped') && (
+              <div className="alert alert-warning">
+                ⚠️ <strong>Warning:</strong> Agar aap is site ko {selectedStatus === 'stopped' ? 'Stopped' : 'Hold'} karte hain to
+                is site ke saare workers ki <strong>attendance ruk jayegi (Hold)</strong> aur unhe{" "}
+                <strong>absent nahi maana jayega</strong>. Attendance tab tak band rahegi jab tak
+                Super Admin (Director) ise wapas <strong>Running</strong> nahi karta. Ye action{" "}
+                <strong>sirf Super Admin (Director)</strong> kar sakta hai.
+              </div>
+            )}
+            {selectedStatus === 'running' && (
+              <div className="alert alert-success">
+                ▶ <strong>Running:</strong> Is site ke workers ki attendance normal chalegi.
+                Ye action sirf Super Admin (Director) kar sakta hai.
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       {tab === 'salary' && (
         <div className="card">

@@ -9,14 +9,17 @@ import { DOCUMENT_TYPES, EMAIL_CATEGORIES } from '../../../../shared/constants.j
 
 export default function ItDashboard() {
   const [data, setData] = useState(null)
+  const [sites, setSites] = useState([])
 
   useEffect(() => {
     api.get('/dashboard/it').then((res) => setData(res.data)).catch(() => setData(null))
+    api.get('/sites').then((res) => setSites(res.data.rows)).catch(() => setSites([]))
   }, [])
 
   if (!data) return <LoadingPage label="Loading IT dashboard..." />
 
   const { stats, todayAttendance, recentRegistrations, recentDocs, emailActivity } = data
+  const holdSites = sites.filter((s) => s.status === 'on_hold')
 
   return (
     <div>
@@ -47,6 +50,7 @@ export default function ItDashboard() {
         <StatCard label="Pending Onboarding" value={stats.pendingRegistrations} icon="🚀" color="green" />
         <StatCard label="Checked In Today" value={stats.todayCheckedIn} icon="🕐" color="blue" />
         <StatCard label="Present Today" value={stats.todayPresent} icon="✅" color="green" />
+        <StatCard label="Sites On Hold" value={holdSites.length} sub={holdSites.map((s) => s.site_name).join(', ') || 'All sites running'} icon="⏸️" color="red" />
       </div>
 
       <div className="grid grid-2">

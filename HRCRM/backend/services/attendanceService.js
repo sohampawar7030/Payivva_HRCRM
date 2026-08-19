@@ -1,5 +1,6 @@
 import { query } from '../config/db.js';
 import { settingsService } from './settingsService.js';
+import { siteService } from './siteService.js';
 
 const PRESENT_STATUSES = ['Present', 'present', 'P'];
 const DENIED_STATUSES = ['Denied', 'denied', 'D'];
@@ -32,6 +33,32 @@ function diffMinutes(a, b) {
   return Math.round((b - a) / 60000);
 }
 
+function dayKeyFromDate(d, tzMin) {
+  if (!d) return null;
+  const local = new Date(d.getTime() + tzMin * 60000);
+  return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+}
+
+/** Local-timezone day keys inside the on-hold ranges (resume day = working day). */
+function buildHoldDayKeys(info, fromDate, toDate) {
+  const keys = new Set();
+  if (!info || !info.intervals.length) return keys;
+  const { intervals, tzMin } = info;
+  for (const iv of intervals) {
+    const startKey = iv.start ? dayKeyFromDate(iv.start, tzMin) : fromDate;
+    const endKey = iv.end ? dayKeyFromDate(iv.end, tzMin) : toDate;
+    if (!startKey || !endKey || endKey <= startKey) continue;
+    let d = new Date(`${startKey}T00:00:00Z`);
+    const last = new Date(`${endKey}T00:00:00Z`);
+    const inclusiveEnd = !iv.end; // ongoing hold → include the month's last day
+    for (; inclusiveEnd ? d <= last : d < last; d.setUTCDate(d.getUTCDate() + 1)) {
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      if (key >= fromDate && key <= toDate) keys.add(key);
+    }
+  }
+  return keys;
+}
+
 /**
  * attendanceService — the ONLY layer that touches the existing `attendance` table.
  * The other software writes GPS check-in/check-out rows; HRCRM reads them for
@@ -61,7 +88,7 @@ export const attendanceService = {
     const tzMin = await this.timezoneOffsetMin();
     const tz = `+${String(Math.floor(Math.abs(tzMin) / 60)).padStart(2, '0')}:${String(Math.abs(tzMin) % 60).padStart(2, '0')}`;
     return query(
-      `SELECT id, employeeId, checkin_time, checkout_time, latitude, longitude, distance, status,
+      `SELECT id, employeeId, siteId, checkin_time, checkout_time, latitude, longitude, distance, status,
               DATE(CONVERT_TZ(checkin_time, '+00:00', ?)) AS localDate
        FROM attendance
        WHERE employeeId = ?
@@ -72,10 +99,13 @@ export const attendanceService = {
   },
 
   /** Per-day aggregation for an employee. */
-  async getDailyRecords(employeeId, fromDate, toDate) {
+  async getDailyRecords(employeeId, fromDate, toDate, holdKeys = null) {
     const raw = await this.getRawRecords(employeeId, fromDate, toDate);
     const shift = await this.getShift();
     const tzMin = await this.timezoneOffsetMin();
+    if (!holdKeys) {
+      holdKeys = buildHoldDayKeys(await siteService.getHoldInfoForEmployee(employeeId, tzMin), fromDate, toDate);
+    }
     const { h: sh, m: sm } = parseShiftTime(shift.startTime);
     const { h: eh, m: em } = parseShiftTime(shift.endTime);
     const grace = Number(shift.graceMinutes) || 15;
@@ -99,6 +129,7 @@ export const attendanceService = {
           overtimeMinutes: 0,
           attempts: 0,
           deniedAttempts: 0,
+          isSiteHold: holdKeys.has(key),
           raw: [],
         });
       }
@@ -141,6 +172,7 @@ export const attendanceService = {
         }
         if (day.lateMinutes > 0) day.status = 'late';
       }
+      if (day.isSiteHold && !day.checkin) day.status = 'hold';
       result.push(day);
     }
     result.sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -153,7 +185,10 @@ export const attendanceService = {
     const last = new Date(year, month, 0);
     const lastStr = `${year}-${String(month).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
 
-    const daily = await this.getDailyRecords(employeeId, first, lastStr);
+    const tzMin = await this.timezoneOffsetMin();
+    const holdKeys = buildHoldDayKeys(await siteService.getHoldInfoForEmployee(employeeId, tzMin), first, lastStr);
+
+    const daily = await this.getDailyRecords(employeeId, first, lastStr, holdKeys);
     const [leaves, specialLeaves] = await Promise.all([
       query(
         `SELECT leaveType, startDate, endDate, days, status FROM hrcrm_leaves
@@ -197,6 +232,7 @@ export const attendanceService = {
     let lateDays = 0;
     let overtimeMinutes = 0;
     let totalMinutes = 0;
+    const workedDates = new Set();
 
     for (const day of daily) {
       if (leaveDaysSet.has(day.date)) continue;
@@ -206,8 +242,10 @@ export const attendanceService = {
         if (special === 'wfh') wfhDays += 1;
         continue;
       }
+      if (day.status === 'hold') continue;
       if (day.status === 'present' || day.status === 'late') {
         presentDays += 1;
+        workedDates.add(day.date);
         totalMinutes += day.totalMinutes;
         overtimeMinutes += day.overtimeMinutes;
         if (day.lateMinutes > 0) lateDays += 1;
@@ -215,9 +253,41 @@ export const attendanceService = {
     }
 
     const monthlyWorkDays = Number(await settingsService.get('monthlyWorkDays', '26')) || 26;
-    const absentDays = Math.max(0, monthlyWorkDays - presentDays - Math.floor(leaveDays) - halfDays - wfhDays);
-
     const shift = await this.getShift();
+
+    // Hold days = site on-hold days in this month that were not worked and
+    // are not leave — these must not count as absent.
+    let holdDays = 0;
+    const holdRows = [];
+    if (holdKeys.size) {
+      let d = new Date(`${first}T00:00:00Z`);
+      const lastD = new Date(`${lastStr}T00:00:00Z`);
+      for (; d <= lastD; d.setUTCDate(d.getUTCDate() + 1)) {
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        if (!holdKeys.has(key)) continue;
+        if (leaveDaysSet.has(key) || specialLeaveDays.has(key) || workedDates.has(key)) continue;
+        holdDays += 1;
+        holdRows.push({
+          date: key,
+          status: 'hold',
+          isWeekend: false,
+          isHoliday: false,
+          isSiteHold: true,
+          isLeave: false,
+          isHalfDay: false,
+          isWfh: false,
+          leaveType: null,
+          checkIn: null,
+          checkOut: null,
+          hours: null,
+          shiftName: shift.name || 'General Shift',
+          lateMinutes: 0,
+        });
+      }
+    }
+
+    const absentDays = Math.max(0, monthlyWorkDays - presentDays - Math.floor(leaveDays) - halfDays - wfhDays - holdDays);
+
     const tzMin2 = await this.timezoneOffsetMin();
     const attendanceRows = daily.map((day) => {
       const isLeave = leaveDaysSet.has(day.date);
@@ -229,6 +299,7 @@ export const attendanceService = {
         status: day.status,
         isWeekend: false,
         isHoliday: false,
+        isSiteHold: Boolean(day.isSiteHold),
         isLeave,
         isHalfDay,
         isWfh,
@@ -239,7 +310,7 @@ export const attendanceService = {
         shiftName: shift.name || 'General Shift',
         lateMinutes: day.lateMinutes,
       };
-    });
+    }).concat(holdRows).sort((a, b) => (a.date < b.date ? -1 : 1));
 
     return {
       year,
@@ -251,6 +322,7 @@ export const attendanceService = {
       leaveDays,
       halfDays,
       wfhDays,
+      holdDays,
       lateDays,
       overtimeMinutes,
       totalHours: Number((totalMinutes / 60).toFixed(2)),
@@ -315,5 +387,108 @@ export const attendanceService = {
   /** Range attendance for an employee (worker/IT/admin view). */
   async getRange(employeeId, fromDate, toDate) {
     return this.getDailyRecords(employeeId, fromDate, toDate);
+  },
+
+  /**
+   * Site-wise worked days for one employee in a month.
+   * Returns per-site day counts + per-date site map (for calendar view).
+   */
+  async getSiteWork(employeeId, year, month) {
+    const first = `${year}-${String(month).padStart(2, '0')}-01`;
+    const last = new Date(year, month, 0);
+    const lastStr = `${year}-${String(month).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+    const tzMin = await this.timezoneOffsetMin();
+    const tz = `+${String(Math.floor(Math.abs(tzMin) / 60)).padStart(2, '0')}:${String(Math.abs(tzMin) % 60).padStart(2, '0')}`;
+
+    const rows = await query(
+      `SELECT a.siteId, s.site_name, DATE_FORMAT(CONVERT_TZ(a.checkin_time, '+00:00', ?), '%Y-%m-%d') AS d
+       FROM attendance a
+       LEFT JOIN sites s ON s.id = a.siteId
+       WHERE a.employeeId = ?
+         AND a.status IN ('Present', 'present', 'P')
+         AND DATE(CONVERT_TZ(a.checkin_time, '+00:00', ?)) BETWEEN ? AND ?
+       GROUP BY a.siteId, s.site_name, DATE_FORMAT(CONVERT_TZ(a.checkin_time, '+00:00', ?), '%Y-%m-%d')
+       ORDER BY d ASC`,
+      [tz, employeeId, tz, first, lastStr, tz]
+    );
+
+    const sites = [];
+    const bySite = new Map();
+    const byDate = {};
+    for (const r of rows) {
+      const siteId = r.siteId;
+      if (!bySite.has(siteId)) {
+        const entry = { siteId, siteName: r.site_name || 'Unknown', days: 0, dates: [] };
+        bySite.set(siteId, entry);
+        sites.push(entry);
+      }
+      bySite.get(siteId).days += 1;
+      bySite.get(siteId).dates.push(r.d);
+      byDate[r.d] = { siteId, siteName: r.site_name || 'Unknown' };
+    }
+    sites.sort((a, b) => b.days - a.days);
+    return { sites, byDate, month, year };
+  },
+
+  /**
+   * Site-wise present days for ALL employees in a month (Director salary analysis).
+   * employees[].sites[] = { siteId, siteName, days, dates[] }
+   * calendar[] = { employeeId, date, siteId, siteName }
+   */
+  async getSiteAnalysis(year, month) {
+    const first = `${year}-${String(month).padStart(2, '0')}-01`;
+    const last = new Date(year, month, 0);
+    const lastStr = `${year}-${String(month).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+    const tzMin = await this.timezoneOffsetMin();
+    const tz = `+${String(Math.floor(Math.abs(tzMin) / 60)).padStart(2, '0')}:${String(Math.abs(tzMin) % 60).padStart(2, '0')}`;
+
+    const rows = await query(
+      `SELECT a.employeeId, e.name AS employee_name, e.employee_id, e.salary, e.wage_per_hour,
+              a.siteId, s.site_name, DATE_FORMAT(CONVERT_TZ(a.checkin_time, '+00:00', ?), '%Y-%m-%d') AS d
+       FROM attendance a
+       JOIN employees e ON e.id = a.employeeId
+       LEFT JOIN sites s ON s.id = a.siteId
+       WHERE a.status IN ('Present', 'present', 'P')
+         AND DATE(CONVERT_TZ(a.checkin_time, '+00:00', ?)) BETWEEN ? AND ?
+       ORDER BY e.name ASC, d ASC`,
+      [tz, tz, first, lastStr]
+    );
+
+    const employees = new Map();
+    const calendar = [];
+    for (const r of rows) {
+      if (!employees.has(r.employeeId)) {
+        employees.set(r.employeeId, {
+          employeeId: r.employeeId,
+          name: r.employee_name,
+          employee_id: r.employee_id,
+          salary: r.salary,
+          wage_per_hour: r.wage_per_hour,
+          totalDays: 0,
+          sites: new Map(),
+        });
+      }
+      const emp = employees.get(r.employeeId);
+      if (!emp.sites.has(r.siteId)) {
+        emp.sites.set(r.siteId, { siteId: r.siteId, siteName: r.site_name || 'Unknown', days: 0, dates: [] });
+      }
+      const site = emp.sites.get(r.siteId);
+      site.days += 1;
+      site.dates.push(r.d);
+      emp.totalDays += 1;
+      calendar.push({ employeeId: r.employeeId, date: r.d, siteId: r.siteId, siteName: r.site_name || 'Unknown' });
+    }
+
+    const result = Array.from(employees.values()).map((emp) => ({
+      employeeId: emp.employeeId,
+      name: emp.name,
+      employee_id: emp.employee_id,
+      salary: emp.salary,
+      wage_per_hour: emp.wage_per_hour,
+      totalDays: emp.totalDays,
+      sites: Array.from(emp.sites.values()).map((s) => ({ ...s })).sort((a, b) => b.days - a.days),
+    }));
+    result.sort((a, b) => b.totalDays - a.totalDays);
+    return { month, year, employees: result, calendar };
   },
 };

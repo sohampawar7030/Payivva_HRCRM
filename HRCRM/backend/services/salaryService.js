@@ -92,6 +92,7 @@ export const salaryService = {
       leaveDays: summary.leaveDays,
       halfDays: summary.halfDays,
       wfhDays: summary.wfhDays,
+      holdDays: summary.holdDays || 0,
       lateDays: summary.lateDays,
       overtimeMinutes: summary.overtimeMinutes,
       totalHours: summary.totalHours,
@@ -347,19 +348,19 @@ export const salaryService = {
   async processingStatus(year, month) {
     const employees = await query('SELECT id FROM employees WHERE emp_status = ?', ['Active']);
     const total = employees.length;
-    const [payrolls] = await query(
+    const payrolls = await query(
       'SELECT COUNT(*) AS cnt FROM hrcrm_payrolls WHERE year = ? AND month = ?',
       [year, month]
     );
-    const [drafts] = await query(
+    const drafts = await query(
       'SELECT COUNT(*) AS cnt FROM hrcrm_payrolls WHERE year = ? AND month = ? AND status = ?',
       [year, month, 'draft']
     );
-    const [finalized] = await query(
+    const finalized = await query(
       'SELECT COUNT(*) AS cnt FROM hrcrm_payrolls WHERE year = ? AND month = ? AND status = ?',
       [year, month, 'finalized']
     );
-    const [paid] = await query(
+    const paid = await query(
       'SELECT COUNT(*) AS cnt FROM hrcrm_payrolls WHERE year = ? AND month = ? AND status = ?',
       [year, month, 'paid']
     );

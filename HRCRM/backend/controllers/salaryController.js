@@ -93,4 +93,12 @@ export const salaryController = {
     const data = await salaryService.processingStatus(year, month);
     ok(res, data);
   }),
+
+  siteAnalysis: asyncHandler(async (req, res) => {
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const month = Number(req.query.month) || new Date().getMonth() + 1;
+    const { attendanceService } = await import('../services/attendanceService.js');
+    const data = await attendanceService.getSiteAnalysis(year, month);
+    ok(res, data);
+  }),
 };

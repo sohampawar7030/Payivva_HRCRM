@@ -26,6 +26,15 @@ export default function AdminSalary() {
   const [calcTarget, setCalcTarget] = useState(null)
   const [calcResult, setCalcResult] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [showSiteAnalysis, setShowSiteAnalysis] = useState(false)
+  const [siteAnalysis, setSiteAnalysis] = useState(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisCal, setAnalysisCal] = useState(null)
+
+  const loadSiteAnalysis = () => {
+    setAnalysisLoading(true)
+    api.get('/salary/site-analysis', { month, year }).then((res) => setSiteAnalysis(res.data)).catch(() => setSiteAnalysis(null)).finally(() => setAnalysisLoading(false))
+  }
 
   const load = () => {
     setRows(null)
@@ -180,6 +189,7 @@ export default function AdminSalary() {
             {[now.getFullYear(), now.getFullYear() - 1].map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
           <button className="btn btn-secondary" onClick={() => { setConfigForm({}); setShowConfig(true) }}>Config</button>
+          <button className={`btn ${showSiteAnalysis ? 'btn-success' : 'btn-secondary'}`} onClick={() => { if (!showSiteAnalysis && !siteAnalysis) loadSiteAnalysis(); setShowSiteAnalysis(!showSiteAnalysis) }}>🏗️ Site Wise Analysis</button>
           <button className="btn btn-primary" disabled={loading} onClick={calculateAll}>{loading ? 'Calculating...' : 'Calculate All'}</button>
         </div>
       </div>
@@ -236,6 +246,63 @@ export default function AdminSalary() {
           </table>
         </div>
       </div>
+
+      {showSiteAnalysis && (
+        <div className="card mt-16">
+          <div className="card-header">
+            <div className="card-title">🏗️ Site Wise Analysis — {MONTHS[month - 1]} {year}</div>
+            <div className="flex items-center gap-8">
+              <span className="text-xs text-muted">Kontya worker ne kontya site la kiti divas present hota (date-wise calendar sathi Calendar button)</span>
+              <button className="btn btn-secondary btn-sm" disabled={analysisLoading} onClick={loadSiteAnalysis}>{analysisLoading ? 'Loading...' : 'Refresh'}</button>
+            </div>
+          </div>
+          <div className="card-body" style={{ padding: 0 }}>
+            {analysisLoading && <div className="p-16 text-sm text-muted">Loading site analysis...</div>}
+            {!analysisLoading && !siteAnalysis && <div className="p-16 text-sm text-muted">Could not load site analysis.</div>}
+            {!analysisLoading && siteAnalysis && siteAnalysis.employees.length === 0 && <EmptyState icon="🏗️" title="No attendance found" sub="No present days recorded for this month." />}
+            {!analysisLoading && siteAnalysis && siteAnalysis.employees.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Total Present</th>
+                      {siteAnalysis.employees.flatMap((e) => e.sites).reduce((acc, s) => (acc.find((x) => x.siteId === s.siteId) ? acc : [...acc, s]), []).map((s) => (
+                        <th key={s.siteId}>{s.siteName}</th>
+                      ))}
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {siteAnalysis.employees.map((e) => (
+                      <tr key={e.employeeId}>
+                        <td>
+                          <strong>{e.name}</strong>
+                          <div className="text-xs text-muted">{e.employee_id}</div>
+                        </td>
+                        <td><strong>{e.totalDays}</strong></td>
+                        {siteAnalysis.employees.flatMap((x) => x.sites).reduce((acc, s) => (acc.find((x) => x.siteId === s.siteId) ? acc : [...acc, s]), []).map((s) => {
+                          const st = e.sites.find((x) => x.siteId === s.siteId)
+                          return <td key={s.siteId} style={{ fontWeight: st ? 600 : 400 }}>{st ? st.days : '—'}</td>
+                        })}
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setAnalysisCal(e)}>📅 Calendar</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <Modal open={!!analysisCal} onClose={() => setAnalysisCal(null)} title={`Site Calendar — ${analysisCal?.name}`} wide>
+        {analysisCal && (
+          <SiteCalendarView employee={analysisCal} calendar={siteAnalysis?.calendar || []} month={month} year={year} />
+        )}
+      </Modal>
 
       <Modal open={showConfig} onClose={() => setShowConfig(false)} title="Salary Calculation Configuration" wide>
         <p className="text-sm text-muted mb-16">These rules drive the payroll calculation for all employees. Leave blank to keep current values.</p>
@@ -359,6 +426,63 @@ export default function AdminSalary() {
         onCancel={() => setFinalizeTarget(null)}
         loading={loading}
       />
+    </div>
+  )
+}
+
+const SITE_COLORS = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#059669']
+const siteColor = (siteId) => SITE_COLORS[(String(siteId).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % SITE_COLORS.length]
+
+function SiteCalendarView({ employee, calendar, month, year }) {
+  const myDays = calendar.filter((c) => c.employeeId === employee.employeeId)
+  const byDate = {}
+  for (const c of myDays) byDate[c.date] = c
+  const ym = `${year}-${String(month).padStart(2, '0')}`
+  const firstDay = new Date(year, month - 1, 1).getDay()
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const cells = []
+  for (let i = 0; i < firstDay; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = `${ym}-${String(d).padStart(2, '0')}`
+    cells.push({ day: d, worked: byDate[key] })
+  }
+  return (
+    <div>
+      <div className="chip-row mb-16">
+        {employee.sites.map((s) => (
+          <span key={s.siteId} className="chip" style={{ borderColor: siteColor(s.siteId) }}>
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: siteColor(s.siteId), marginRight: 6 }} />
+            {s.siteName} — {s.days} day{s.days > 1 ? 's' : ''}
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, fontSize: 11 }}>
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((wd) => (
+          <div key={wd} className="text-muted text-center py-4">{wd}</div>
+        ))}
+        {cells.map((cell, i) => (
+          <div key={i}
+            className="text-center"
+            style={{
+              minHeight: 48, borderRadius: 6, padding: 3,
+              border: '1px solid var(--gray-100)',
+              background: cell && cell.worked ? (siteColor(cell.worked.siteId) + '22') : 'transparent',
+              color: cell && cell.worked ? 'var(--text)' : 'var(--gray-400)',
+              fontWeight: cell && cell.worked ? 600 : 400,
+            }}
+          >
+            {cell && (
+              <>
+                <div>{cell.day}</div>
+                {cell.worked && (
+                  <div style={{ color: siteColor(cell.worked.siteId), fontSize: 9, lineHeight: 1.1, wordBreak: 'break-word' }}>{cell.worked.siteName}</div>
+                )}
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-16 text-xs text-muted">Konatyacha divshi kontya site var present hota — check-in ani emergency attendance doni sources.</div>
     </div>
   )
 }

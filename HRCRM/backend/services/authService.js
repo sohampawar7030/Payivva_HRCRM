@@ -124,6 +124,11 @@ export const authService = {
          WHERE id = ?`,
         [hash, user.id]
       );
+      // Keep legacy ERP login in sync — same password works in both apps
+      await conn.query(
+        'UPDATE users SET password = ?, password_text = ? WHERE email = ?',
+        [hash, password, user.email]
+      );
       await conn.query(
         `INSERT INTO hrcrm_verification (employeeId, profileStatus, itStatus, directorStatus)
          VALUES (?, 'not_started', 'pending', 'pending')
@@ -179,6 +184,14 @@ export const authService = {
       const hash = await bcrypt.hash(password, 10);
       await conn.query('UPDATE hrcrm_users SET password = ? WHERE id = ?', [hash, rec.userId]);
       await conn.query('UPDATE hrcrm_password_reset_tokens SET usedAt = NOW() WHERE id = ?', [rec.id]);
+      // Keep legacy ERP login in sync — same password works in both apps
+      const [u] = await conn.query('SELECT email FROM hrcrm_users WHERE id = ?', [rec.userId]);
+      if (u?.[0]?.email) {
+        await conn.query(
+          'UPDATE users SET password = ?, password_text = ? WHERE email = ?',
+          [hash, password, u[0].email]
+        );
+      }
       return { success: true };
     });
   },
@@ -190,6 +203,13 @@ export const authService = {
     if (!valid) throw Errors.badRequest('Current password is incorrect', 'WRONG_PASSWORD');
     const hash = await bcrypt.hash(newPassword, 10);
     await query('UPDATE hrcrm_users SET password = ? WHERE id = ?', [hash, userId]);
+    // Keep legacy ERP login in sync — same password works in both apps
+    if (user.email) {
+      await query(
+        'UPDATE users SET password = ?, password_text = ? WHERE email = ?',
+        [hash, newPassword, user.email]
+      );
+    }
     await auditService.log({
       userId,
       action: 'CHANGE_PASSWORD',

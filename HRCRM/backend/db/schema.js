@@ -383,4 +383,23 @@ export const statements = [
     PRIMARY KEY (id),
     UNIQUE KEY uq_hrcrm_settings_key (settingKey)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+  // ---------- Site status history (attendance hold) ----------
+  // Insert-only log of site status changes (running / on_hold / stopped). The
+  // current status is the latest row. While a site is on hold or stopped,
+  // attendance for its workers is not counted as absent (marked "hold").
+  `CREATE TABLE IF NOT EXISTS hrcrm_site_status_history (
+    id INT NOT NULL AUTO_INCREMENT,
+    siteId INT NOT NULL,
+    status ENUM('running','on_hold','stopped') NOT NULL,
+    notes VARCHAR(1000) NULL,
+    changedBy INT NULL,
+    changedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_site_status_history_site (siteId, id),
+    CONSTRAINT fk_site_status_history_site FOREIGN KEY (siteId) REFERENCES sites(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+  // Expand the enum on databases created before "stopped" was added (no-op on fresh installs).
+  `ALTER TABLE hrcrm_site_status_history MODIFY COLUMN status ENUM('running','on_hold','stopped') NOT NULL`,
 ];

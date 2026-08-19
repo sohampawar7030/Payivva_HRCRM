@@ -36,7 +36,7 @@ export default function AdminAttendance() {
       <div className="page-header">
         <div>
           <div className="page-title">Attendance Overview</div>
-          <div className="page-subtitle">Monthly summaries from the site attendance system (read-only)</div>
+          <div className="page-subtitle">Monthly summaries from the site attendance system (read-only). Days when a site is on hold are shown under "Hold" — not absent.</div>
         </div>
         <div className="flex items-center gap-8">
           <select className="input" style={{ width: 150 }} value={month} onChange={(e) => setMonth(Number(e.target.value))}>
@@ -85,7 +85,7 @@ export default function AdminAttendance() {
           {sorted.length === 0 && <EmptyState icon="👥" title="No employees" />}
           <table className="table">
             <thead>
-              <tr><th>Employee</th><th>Present</th><th>Absent</th><th>Leave/WFH</th><th>Half</th><th>Late</th><th>Hours</th></tr>
+              <tr><th>Employee</th><th>Present</th><th>Absent</th><th>Hold</th><th>Leave/WFH</th><th>Half</th><th>Late</th><th>Hours</th></tr>
             </thead>
             <tbody>
               {sorted.map((w) => {
@@ -98,6 +98,7 @@ export default function AdminAttendance() {
                     </td>
                     <td>{s ? s.presentDays : '—'}</td>
                     <td>{s ? s.absentDays : '—'}</td>
+                    <td>{s?.holdDays ? <StatusBadge status="hold" labels={{ hold: `${s.holdDays} days` }} /> : '—'}</td>
                     <td>{s ? s.leaveDays : '—'}</td>
                     <td>{s ? s.halfDays : '—'}</td>
                     <td>{s ? s.lateDays : '—'}</td>
