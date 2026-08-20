@@ -1,12 +1,11 @@
-import { existsSync, copyFileSync, mkdirSync, rmSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, copyFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 function copyDir(src, dest) {
   if (!existsSync(src)) {
     console.error(`Source not found: ${src}. Run the frontend build first.`);
     process.exit(1);
   }
-  rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
   for (const entry of readdirSync(src, { withFileTypes: true })) {
     const s = join(src, entry.name);
@@ -22,5 +21,11 @@ if (!existsSync(envPath)) {
   console.log('Created .env from .env.example - please fill in real credentials.');
 }
 
+rmSync('dist', { recursive: true, force: true });
 copyDir('frontend/dist', 'dist');
-console.log('Vercel dist prepared.');
+
+if (existsSync('public')) {
+  copyDir('public', 'dist');
+}
+
+console.log('Vercel dist prepared successfully.');
