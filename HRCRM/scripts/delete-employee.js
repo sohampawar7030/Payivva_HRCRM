@@ -23,31 +23,38 @@ async function deleteEmployeeData() {
       return;
     }
 
+    const safeDelete = async (sql, params) => {
+      try {
+        await conn.query(sql, params);
+      } catch (e) {
+        // ignore table missing error
+      }
+    };
+
     await conn.beginTransaction();
 
     if (empId) {
-      await conn.query('DELETE FROM hrcrm_profile_details WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_contact_details WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_employment_details WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_verification WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_verification_history WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_documents WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_leaves WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_leave_balances WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_attendance WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM attendance WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_letters WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_salary_slips WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM employee_inventory WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM hrcrm_notifications WHERE userId IN (SELECT id FROM hrcrm_users WHERE employeeId = ?)', [empId]);
-      await conn.query('DELETE FROM hrcrm_users WHERE employeeId = ?', [empId]);
-      await conn.query('DELETE FROM employees WHERE id = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_profile_details WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_contact_details WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_employment_details WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_verification WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_verification_history WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_documents WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_leaves WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_leave_balances WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM attendance WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_letters WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_salary_slips WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM employee_inventory WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM hrcrm_notifications WHERE userId IN (SELECT id FROM hrcrm_users WHERE employeeId = ?)', [empId]);
+      await safeDelete('DELETE FROM hrcrm_users WHERE employeeId = ?', [empId]);
+      await safeDelete('DELETE FROM employees WHERE id = ?', [empId]);
       console.log(`✅ All associated records for Employee ID ${empId} deleted successfully.`);
     }
 
     if (usrId) {
-      await conn.query('DELETE FROM hrcrm_notifications WHERE userId = ?', [usrId]);
-      await conn.query('DELETE FROM hrcrm_users WHERE id = ?', [usrId]);
+      await safeDelete('DELETE FROM hrcrm_notifications WHERE userId = ?', [usrId]);
+      await safeDelete('DELETE FROM hrcrm_users WHERE id = ?', [usrId]);
       console.log(`✅ User account ID ${usrId} deleted successfully.`);
     }
 
