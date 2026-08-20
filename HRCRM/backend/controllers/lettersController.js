@@ -58,4 +58,21 @@ export const lettersController = {
     });
     ok(res, result, result.sent ? 'Letter emailed' : 'Email send attempted (check SMTP configuration)');
   }),
+
+  previewPdf: asyncHandler(async (req, res) => {
+    const result = await letterService.preview({
+      employeeId: req.body.employeeId ? Number(req.body.employeeId) : 0,
+      letterType: req.body.letterType || 'offer',
+      title: req.body.title || null,
+      extra: req.body.extra || {},
+    });
+    ok(res, { pdfBase64: result.pdfBase64 });
+  }),
+
+  delete: asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (req.user.role === 'worker') throw Errors.forbidden('Only IT/Director can delete letters');
+    const result = await letterService.delete(id, { actor: { ...req.user, ip: req.ip } });
+    ok(res, result, 'Letter deleted permanently');
+  }),
 };

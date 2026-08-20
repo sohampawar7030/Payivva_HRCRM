@@ -45,6 +45,26 @@ export async function authenticate(req, res, next) {
     if (!user) throw Errors.unauthorized('Account no longer exists');
     if (user.status === 'inactive') throw Errors.forbidden('Account is deactivated');
 
+    // Worker on approved leave → session blocked for the leave duration
+    // (auto-unblocks when the leave ends).
+    if (user.role === 'worker' && user.employeeId) {
+      const [lv] = await pool.query(
+        `SELECT 1 FROM hrcrm_leaves
+         WHERE employeeId = ? AND status = 'director_approved'
+           AND startDate <= CURDATE() AND endDate >= CURDATE()
+           AND NOT EXISTS (
+             SELECT 1 FROM employees WHERE id = ? AND emergency_unblock_until >= CURDATE()
+           )
+         LIMIT 1`,
+        [user.employeeId, user.employeeId]
+      );
+      if (lv && lv.length > 0) {
+        throw Errors.forbidden(
+          'Your account is temporarily blocked while you are on approved leave. According to company policy you cannot log in during your leave. Enjoy your holidays! If you face any problem, contact IT Department: Mr. Soham Pawar (+91 7030806080, sohampawar1030@gmail.com)'
+        );
+      }
+    }
+
     req.user = user;
     next();
   } catch (err) {

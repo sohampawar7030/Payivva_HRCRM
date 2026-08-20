@@ -8,6 +8,25 @@ import { Modal } from '../../components/ui/Modal.jsx'
 import { Field } from '../../components/ui/Form.jsx'
 import { formatDate } from '../../utils/format.js'
 
+function generateEmployeeCodeFromName(name, existingWorkers = []) {
+  if (!name || !name.trim()) return ''
+  const parts = name.trim().split(/\s+/)
+  const firstChar = (parts[0] || 'E')[0].toUpperCase()
+  const lastChar = (parts.length > 1 ? parts[parts.length - 1][0] : (parts[0][1] || parts[0][0] || 'M')).toUpperCase()
+  const existingSet = new Set((existingWorkers || []).map((w) => (w.employee_id || w.employeeCode || '').toUpperCase()))
+
+  let attempts = 0
+  while (attempts < 100) {
+    const randomDigits = Math.floor(1000 + Math.random() * 9000)
+    const code = `PAYIVVA_${firstChar}${lastChar}${randomDigits}`
+    if (!existingSet.has(code.toUpperCase())) {
+      return code
+    }
+    attempts++
+  }
+  return `PAYIVVA_${firstChar}${lastChar}${Math.floor(1000 + Math.random() * 9000)}`
+}
+
 export default function ItWorkers() {
   const toast = useToast()
   const [rows, setRows] = useState(null)
@@ -31,11 +50,30 @@ export default function ItWorkers() {
 
   const set = (k, v) => setReg((f) => ({ ...f, [k]: v }))
 
+  const handleNameChange = (k, v) => {
+    setReg((f) => {
+      const next = { ...f, name: v }
+      if (!f.manualEmployeeId) {
+        next.employeeId = generateEmployeeCodeFromName(v, rows || [])
+      }
+      return next
+    })
+  }
+
+  const handleEmployeeIdChange = (k, v) => {
+    setReg((f) => ({ ...f, employeeId: v, manualEmployeeId: true }))
+  }
+
+  const triggerAutoGenerateId = () => {
+    const code = generateEmployeeCodeFromName(reg.name || 'Worker', rows || [])
+    setReg((f) => ({ ...f, employeeId: code, manualEmployeeId: false }))
+  }
+
   const register = async () => {
     setSubmitting(true)
     try {
       const res = await api.post('/workers', reg)
-      toast.success('Worker registered')
+      toast.success('Worker registered successfully')
       setCreated(res.data)
       setShowRegister(false)
       setReg({})
@@ -56,7 +94,7 @@ export default function ItWorkers() {
           <div className="page-title">Employees</div>
           <div className="page-subtitle">{total} employee(s) · register new workers and send onboarding links</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowRegister(true)}>+ Register Worker</button>
+        <button className="btn btn-primary" onClick={() => { setReg({}); setShowRegister(true); }}>+ Register Worker</button>
       </div>
 
       <div className="card mb-16">
@@ -119,8 +157,19 @@ export default function ItWorkers() {
 
       <Modal open={showRegister} onClose={() => setShowRegister(false)} title="Register New Worker" wide>
         <div className="form-row">
-          <Field field={{ name: 'employeeId', label: 'Employee ID', type: 'text', required: true, hint: 'e.g. PAYIVVA-SM-01' }} value={reg.employeeId} onChange={set} />
-          <Field field={{ name: 'name', label: 'Full Name', type: 'text', required: true }} value={reg.name} onChange={set} />
+          <Field field={{ name: 'name', label: 'Full Name', type: 'text', required: true }} value={reg.name} onChange={handleNameChange} />
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Field field={{ name: 'employeeId', label: 'Employee ID', type: 'text', required: true, hint: 'Auto-generated format (e.g. PAYIVVA_ST8492)' }} value={reg.employeeId} onChange={handleEmployeeIdChange} />
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={triggerAutoGenerateId}
+              style={{ position: 'absolute', right: 0, top: 0, color: '#2563eb', fontSize: '11px', padding: '0 4px' }}
+              title="Regenerate random 4-digit Employee ID"
+            >
+              ⚡ Auto Generate
+            </button>
+          </div>
         </div>
         <div className="form-row">
           <Field field={{ name: 'department', label: 'Department', type: 'text' }} value={reg.department} onChange={set} />

@@ -229,6 +229,105 @@ export const leaveService = {
     }
   },
 
+  /** Workers currently on approved leave (covering today) + emergency unblock status. */
+  async listActiveOnLeave() {
+    return query(
+      `SELECT l.id, l.employeeId, l.leaveType, l.startDate, l.endDate, l.days,
+              e.name AS employeeName, e.employee_id AS employeeCode, e.email,
+              e.emergency_unblock_until AS unblockedUntil,
+              CASE WHEN e.emergency_unblock_until IS NOT NULL AND e.emergency_unblock_until >= CURDATE() THEN 1 ELSE 0 END AS isUnblocked
+       FROM hrcrm_leaves l
+       JOIN employees e ON e.id = l.employeeId
+       WHERE l.status = 'director_approved'
+         AND l.startDate <= CURDATE() AND l.endDate >= CURDATE()
+       ORDER BY e.name ASC, l.startDate ASC`
+    );
+  },
+
+  /** Adjust leave dates/days — used by IT to shorten or extend an approved leave. */
+  async adjustDates(id, { startDate, endDate }, actor) {
+    const leave = await queryOne('SELECT * FROM hrcrm_leaves WHERE id = ?', [id]);
+    if (!leave) throw Errors.notFound('Leave request not found');
+    const s = parseDate(startDate);
+    const e = parseDate(endDate);
+    if (!s || !e) throw Errors.badRequest('Valid start and end dates are required', 'INVALID_DATES');
+    if (e < s) throw Errors.badRequest('End date cannot be before start date', 'INVALID_DATES');
+    let days = Math.round((e - s) / 86400000) + 1;
+    if (leave.leaveType === 'half_day') {
+      days = 0.5;
+      if (e > s) throw Errors.badRequest('Half day leave can only be a single day', 'INVALID_HALF_DAY');
+    }
+    await withTransaction(async (conn) => {
+      await conn.query(
+        'UPDATE hrcrm_leaves SET startDate = ?, endDate = ?, days = ?, updatedAt = NOW() WHERE id = ?',
+        [s, e, days, id]
+      );
+      const diff = Number(days) - Number(leave.days);
+      if (diff !== 0) {
+        await conn.query(
+          `UPDATE hrcrm_leave_balances SET used = GREATEST(0, used + ?) WHERE employeeId = ? AND leaveType = ? AND year = YEAR(?)`,
+          [diff, leave.employeeId, leave.leaveType, s]
+        );
+      }
+      // Keep an active emergency unblock in sync with the new leave end date.
+      const [emp] = await conn.query(
+        'SELECT emergency_unblock_until >= CURDATE() AS active FROM employees WHERE id = ?',
+        [leave.employeeId]
+      );
+      if (emp[0] && emp[0].active) {
+        await conn.query('UPDATE employees SET emergency_unblock_until = ? WHERE id = ?', [e, leave.employeeId]);
+      }
+    });
+    await this.recalcDraftPayrolls({ ...leave, startDate: s, endDate: e });
+    await auditService.log({
+      userId: actor?.id,
+      action: 'UPDATE',
+      module: 'leave',
+      entityId: id,
+      description: `Leave #${id} dates adjusted to ${s} → ${e} (${days} day(s))`,
+      ip: actor?.ip,
+    });
+    return this.get(id);
+  },
+
+  /** Emergency login unblock for a worker on approved leave (until leave end). */
+  async unblock(employeeId, actor) {
+    const leaves = await query(
+      `SELECT endDate FROM hrcrm_leaves
+       WHERE employeeId = ? AND status = 'director_approved'
+         AND startDate <= CURDATE() AND endDate >= CURDATE()
+       LIMIT 1`,
+      [employeeId]
+    );
+    if (leaves.length === 0) throw Errors.badRequest('Worker is not currently on approved leave', 'NOT_ON_LEAVE');
+    const until = new Date(leaves[0].endDate);
+    const untilStr = until.toLocaleDateString('en-CA');
+    await query('UPDATE employees SET emergency_unblock_until = ? WHERE id = ?', [until, employeeId]);
+    await auditService.log({
+      userId: actor?.id,
+      action: 'EMERGENCY_UNBLOCK',
+      module: 'leave',
+      entityId: employeeId,
+      description: `Emergency unblock login until ${untilStr}`,
+      ip: actor?.ip,
+    });
+    return { success: true, until: untilStr };
+  },
+
+  /** Remove the emergency unblock → login blocks again immediately. */
+  async cancelUnblock(employeeId, actor) {
+    await query('UPDATE employees SET emergency_unblock_until = NULL WHERE id = ?', [employeeId]);
+    await auditService.log({
+      userId: actor?.id,
+      action: 'REBLOCK',
+      module: 'leave',
+      entityId: employeeId,
+      description: `Emergency unblock removed for worker #${employeeId} — login blocked again`,
+      ip: actor?.ip,
+    });
+    return { success: true };
+  },
+
   async getBalances(employeeId, year = new Date().getFullYear()) {
     const rows = await query(
       `SELECT * FROM hrcrm_leave_balances WHERE employeeId = ? AND year = ?`,

@@ -23,6 +23,7 @@ export default function WorkerAttendance() {
     if (d.isHoliday) return 'Holiday'
     if (d.isLeave) return d.leaveType ? `${d.leaveType.replace('_', ' ')} leave` : 'On leave'
     if (d.isHalfDay) return 'Half day'
+    if (d.isUnassigned) return 'No site assigned (holding)'
     if (d.isSiteHold) return 'Site on hold'
     return 'Absent'
   }
@@ -49,7 +50,7 @@ export default function WorkerAttendance() {
       <div className="grid mb-16" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
         <StatCard label="Present" value={data.presentDays} icon="✅" color="green" />
         <StatCard label="Absent" value={data.absentDays} icon="❌" color="red" />
-        <StatCard label="On Hold" value={data.holdDays || 0} sub="Site work stopped" icon="⏸️" color="amber" />
+        <StatCard label="On Hold" value={(data.holdDays || 0) + (data.unassignedDays || 0)} sub={data.unassignedDays > 0 ? `No site assigned (${data.unassignedDays} days)` : 'Site work stopped'} icon="⏸️" color="amber" />
         <StatCard label="Leave / WFH" value={data.leaveDays} icon="🌴" color="purple" />
         <StatCard label="Total Hours" value={data.totalHours ? `${data.totalHours} hrs` : '—'} sub={`${data.lateDays || 0} late check-ins`} icon="🕐" color="blue" />
       </div>

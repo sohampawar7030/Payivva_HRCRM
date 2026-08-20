@@ -107,6 +107,11 @@ const leaveReviewSchema = Joi.object({
   remarks: Joi.string().max(1000).allow('', null),
 });
 
+const leaveDatesSchema = Joi.object({
+  startDate: Joi.date().required(),
+  endDate: Joi.date().required(),
+});
+
 const salaryCalcSchema = Joi.object({
   employeeId: Joi.number().integer().required(),
   year: Joi.number().integer().min(2020).max(2100).required(),
@@ -179,11 +184,15 @@ router.get('/documents/:id/download', authenticate, requireRole(...ALL), documen
 
 // ===== Leaves =====
 router.get('/leaves', authenticate, requireRole(...STAFF), leavesController.list);
+router.get('/leaves/active', authenticate, requireRole(...STAFF), leavesController.activeOnLeave);
 router.get('/leaves/mine', authenticate, requireRole(WORKER), leavesController.my);
 router.get('/leaves/balances/:employeeId?', authenticate, requireRole(...ALL), leavesController.balances);
 router.get('/leaves/:id', authenticate, requireRole(...ALL), leavesController.get);
 router.post('/leaves', authenticate, requireRole(...ALL), validate(leaveCreateSchema), leavesController.create);
 router.put('/leaves/:id/review', authenticate, requireRole(...STAFF), validate(leaveReviewSchema), leavesController.review);
+router.put('/leaves/:id/dates', authenticate, requireRole(...STAFF), validate(leaveDatesSchema), leavesController.adjustDates);
+router.post('/leaves/:employeeId/unblock', authenticate, requireRole(IT, DIRECTOR), leavesController.unblock);
+router.delete('/leaves/:employeeId/unblock', authenticate, requireRole(IT, DIRECTOR), leavesController.cancelUnblock);
 router.post('/leaves/:id/cancel', authenticate, requireRole(...ALL), leavesController.cancel);
 
 // ===== Attendance =====
@@ -210,10 +219,12 @@ router.post('/salary/:id/send-slip', authenticate, requireRole(...STAFF), salary
 // ===== Letters =====
 router.get('/letters', authenticate, requireRole(...STAFF), lettersController.list);
 router.get('/letters/mine', authenticate, requireRole(WORKER), lettersController.my);
+router.post('/letters/preview', authenticate, requireRole(...STAFF), lettersController.previewPdf);
 router.get('/letters/:id', authenticate, requireRole(...ALL), lettersController.get);
 router.get('/letters/:id/pdf', authenticate, requireRole(...ALL), lettersController.downloadPdf);
 router.post('/letters', authenticate, requireRole(...STAFF), validate(letterSchema), lettersController.generate);
 router.post('/letters/:id/send', authenticate, requireRole(...STAFF), lettersController.sendEmail);
+router.delete('/letters/:id', authenticate, requireRole(...STAFF), lettersController.delete);
 
 // ===== Emails =====
 router.get('/emails/logs', authenticate, requireRole(...STAFF), emailsController.logs);

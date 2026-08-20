@@ -89,10 +89,10 @@ export const attendanceService = {
     const tz = `+${String(Math.floor(Math.abs(tzMin) / 60)).padStart(2, '0')}:${String(Math.abs(tzMin) % 60).padStart(2, '0')}`;
     return query(
       `SELECT id, employeeId, siteId, checkin_time, checkout_time, latitude, longitude, distance, status,
-              DATE(CONVERT_TZ(checkin_time, '+00:00', ?)) AS localDate
+              DATE_FORMAT(CONVERT_TZ(checkin_time, '+00:00', ?), '%Y-%m-%d') AS localDate
        FROM attendance
        WHERE employeeId = ?
-         AND DATE(CONVERT_TZ(checkin_time, '+00:00', ?)) BETWEEN ? AND ?
+         AND DATE_FORMAT(CONVERT_TZ(checkin_time, '+00:00', ?), '%Y-%m-%d') BETWEEN ? AND ?
        ORDER BY checkin_time ASC`,
       [tz, employeeId, tz, fromDate, toDate]
     );
@@ -106,6 +106,11 @@ export const attendanceService = {
     if (!holdKeys) {
       holdKeys = buildHoldDayKeys(await siteService.getHoldInfoForEmployee(employeeId, tzMin), fromDate, toDate);
     }
+    const empRows = await query('SELECT siteId, site_assigned_date FROM employees WHERE id = ?', [employeeId]);
+    const unassigned = !(empRows[0] && empRows[0].siteId);
+    const unassignedFrom = empRows[0] && empRows[0].site_assigned_date
+      ? dayKeyFromDate(new Date(empRows[0].site_assigned_date), tzMin)
+      : fromDate;
     const { h: sh, m: sm } = parseShiftTime(shift.startTime);
     const { h: eh, m: em } = parseShiftTime(shift.endTime);
     const grace = Number(shift.graceMinutes) || 15;
@@ -174,6 +179,39 @@ export const attendanceService = {
       }
       if (day.isSiteHold && !day.checkin) day.status = 'hold';
       result.push(day);
+    }
+    // No site assigned → days from the unassignment date are holding days
+    // (worker cannot mark attendance, must not count as absent). Future days
+    // are not marked.
+    if (unassigned) {
+      const todayKey = dayKeyFromDate(new Date(), tzMin);
+      const startKey = unassignedFrom > fromDate ? unassignedFrom : fromDate;
+      const endKey = todayKey < toDate ? todayKey : toDate;
+      if (startKey <= endKey) {
+        let d = new Date(`${startKey}T00:00:00Z`);
+        const lastD = new Date(`${endKey}T00:00:00Z`);
+        for (; d <= lastD; d.setUTCDate(d.getUTCDate() + 1)) {
+          const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+          if (result.some((r) => r.date === key)) continue;
+          result.push({
+            date: key,
+            status: 'hold',
+            checkin: null,
+            checkout: null,
+            checkinTime: null,
+            checkoutTime: null,
+            totalMinutes: 0,
+            lateMinutes: 0,
+            earlyExitMinutes: 0,
+            overtimeMinutes: 0,
+            attempts: 0,
+            deniedAttempts: 0,
+            isSiteHold: false,
+            isUnassigned: true,
+            raw: [],
+          });
+        }
+      }
     }
     result.sort((a, b) => (a.date < b.date ? -1 : 1));
     return result;
@@ -273,6 +311,7 @@ export const attendanceService = {
           isWeekend: false,
           isHoliday: false,
           isSiteHold: true,
+          isUnassigned: false,
           isLeave: false,
           isHalfDay: false,
           isWfh: false,
@@ -286,7 +325,16 @@ export const attendanceService = {
       }
     }
 
-    const absentDays = Math.max(0, monthlyWorkDays - presentDays - Math.floor(leaveDays) - halfDays - wfhDays - holdDays);
+    // Unassigned days = worker has no site → every month day is holding
+    // (already present as isUnassigned rows in `daily`), except worked/leave days.
+    let unassignedDays = 0;
+    for (const day of daily) {
+      if (!day.isUnassigned) continue;
+      if (leaveDaysSet.has(day.date) || specialLeaveDays.has(day.date) || workedDates.has(day.date)) continue;
+      unassignedDays += 1;
+    }
+
+    const absentDays = Math.max(0, monthlyWorkDays - presentDays - Math.floor(leaveDays) - halfDays - wfhDays - holdDays - unassignedDays);
 
     const tzMin2 = await this.timezoneOffsetMin();
     const attendanceRows = daily.map((day) => {
@@ -300,6 +348,7 @@ export const attendanceService = {
         isWeekend: false,
         isHoliday: false,
         isSiteHold: Boolean(day.isSiteHold),
+        isUnassigned: Boolean(day.isUnassigned),
         isLeave,
         isHalfDay,
         isWfh,
@@ -323,6 +372,7 @@ export const attendanceService = {
       halfDays,
       wfhDays,
       holdDays,
+      unassignedDays,
       lateDays,
       overtimeMinutes,
       totalHours: Number((totalMinutes / 60).toFixed(2)),
@@ -456,6 +506,7 @@ export const attendanceService = {
 
     const employees = new Map();
     const calendar = [];
+    const workedByEmp = new Map();
     for (const r of rows) {
       if (!employees.has(r.employeeId)) {
         employees.set(r.employeeId, {
@@ -469,6 +520,8 @@ export const attendanceService = {
         });
       }
       const emp = employees.get(r.employeeId);
+      if (!workedByEmp.has(r.employeeId)) workedByEmp.set(r.employeeId, new Set());
+      workedByEmp.get(r.employeeId).add(r.d);
       if (!emp.sites.has(r.siteId)) {
         emp.sites.set(r.siteId, { siteId: r.siteId, siteName: r.site_name || 'Unknown', days: 0, dates: [] });
       }
@@ -486,8 +539,95 @@ export const attendanceService = {
       salary: emp.salary,
       wage_per_hour: emp.wage_per_hour,
       totalDays: emp.totalDays,
+      unassignedDays: 0,
       sites: Array.from(emp.sites.values()).map((s) => ({ ...s })).sort((a, b) => b.days - a.days),
     }));
+    result.sort((a, b) => b.totalDays - a.totalDays);
+
+    // Approved leaves (IT + Director approved) — precompute per-employee day
+    // keys so holding days skip them; calendar shows "On leave".
+    const leaves = await query(
+      `SELECT employeeId, leaveType, startDate, endDate FROM hrcrm_leaves
+       WHERE status = 'director_approved' AND startDate <= ? AND endDate >= ?`,
+      [lastStr, first]
+    );
+    const leaveByEmp = new Map();
+    const leaveLabel = (type) => (type === 'half_day' ? 'Half day' : type === 'wfh' ? 'WFH' : 'On leave');
+    for (const l of leaves) {
+      const sd = dayKeyFromDate(new Date(l.startDate), tzMin);
+      const ed = dayKeyFromDate(new Date(l.endDate), tzMin);
+      const start = new Date(`${sd > first ? sd : first}T00:00:00Z`);
+      const end = new Date(`${ed < lastStr ? ed : lastStr}T00:00:00Z`);
+      const id = Number(l.employeeId);
+      const label = leaveLabel(l.leaveType);
+      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        if (!leaveByEmp.has(id)) leaveByEmp.set(id, new Map());
+        leaveByEmp.get(id).set(key, label);
+      }
+    }
+
+    // Workers with NO site assigned → every calendar day of the month without
+    // attendance is a holding day (they cannot mark attendance). Salary still
+    // runs — full-time hire.
+    const todayKey = dayKeyFromDate(new Date(), tzMin);
+    const allEmps = await query(
+      `SELECT e.id, e.name, e.employee_id, e.salary, e.wage_per_hour, e.siteId, e.site_assigned_date
+       FROM employees e WHERE e.siteId IS NULL`
+    );
+    for (const u of allEmps) {
+      const workedSet = workedByEmp.get(u.id) || new Set();
+      const leaveSet = leaveByEmp.get(u.id) || new Map();
+      const sad = u.site_assigned_date ? dayKeyFromDate(new Date(u.site_assigned_date), tzMin) : null;
+      const startKey = sad && sad >= first ? sad : first;
+      const endKey = todayKey < lastStr ? todayKey : lastStr;
+      const days = [];
+      let unassigned = 0;
+      if (startKey <= endKey) {
+        let d = new Date(`${startKey}T00:00:00Z`);
+        const lastD = new Date(`${endKey}T00:00:00Z`);
+        for (; d <= lastD; d.setUTCDate(d.getUTCDate() + 1)) {
+          const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+          if (workedSet.has(key) || leaveSet.has(key)) continue;
+          unassigned++;
+          days.push(key);
+          calendar.push({ employeeId: u.id, date: key, siteId: 0, siteName: 'No site assigned' });
+        }
+      }
+      const existing = result.find((x) => x.employeeId === u.id);
+      if (existing) {
+        existing.unassignedDays = unassigned;
+        existing.unassignedDates = days;
+      } else {
+        result.push({
+          employeeId: u.id,
+          name: u.name,
+          employee_id: u.employee_id,
+          salary: u.salary,
+          wage_per_hour: u.wage_per_hour,
+          totalDays: 0,
+          unassignedDays: unassigned,
+          sites: [],
+          unassignedDates: days,
+        });
+      }
+    }
+    // Approved leaves (IT + Director approved) → calendar shows "On leave".
+    for (const x of result) {
+      const myKeys = leaveByEmp.get(x.employeeId);
+      if (!myKeys || myKeys.size === 0) continue;
+      const workedSet = workedByEmp.get(x.employeeId) || new Set();
+      const leaveDates = Array.from(myKeys.keys()).sort();
+      let leaveDays = 0;
+      for (const key of leaveDates) {
+        if (workedSet.has(key)) continue;
+        leaveDays++;
+        calendar.push({ employeeId: x.employeeId, date: key, siteId: -1, siteName: myKeys.get(key) });
+      }
+      x.leaveDays = leaveDays;
+      x.leaveDates = leaveDates;
+    }
+    for (const x of result) if (x.leaveDays === undefined) x.leaveDays = 0;
     result.sort((a, b) => b.totalDays - a.totalDays);
     return { month, year, employees: result, calendar };
   },

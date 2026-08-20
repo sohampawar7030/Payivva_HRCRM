@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Payivva HRCRM - Human Resource & Company Resource Management System (React + Express Serverless + MySQL)",
   "scripts": {
-    "dev": "node backend/server.js",
+    "dev": "concurrently -n \"API-SERVER,FRONTEND,SMTP-SERVICE\" -c \"blue,green,yellow\" \"node --watch backend/server.js\" \"npm --prefix frontend run dev\"",
+    "dev:backend": "node --watch backend/server.js",
     "dev:frontend": "npm --prefix frontend run dev",
     "db:setup": "node backend/db/setup.js",
     "build:vercel": "npm --prefix frontend install && npm --prefix frontend run build && node scripts/prepare-dist.js",
@@ -23,5 +24,8 @@
     "mysql2": "^3.11.4",
     "nodemailer": "^6.9.16",
     "pdfkit": "^0.15.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }

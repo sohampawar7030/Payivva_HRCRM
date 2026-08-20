@@ -68,4 +68,24 @@ export const leavesController = {
     await leaveService.cancel(Number(req.params.id), { ...req.user, ip: req.ip });
     ok(res, null, 'Leave request cancelled');
   }),
+
+  activeOnLeave: asyncHandler(async (req, res) => {
+    const rows = await leaveService.listActiveOnLeave();
+    ok(res, { rows });
+  }),
+
+  adjustDates: asyncHandler(async (req, res) => {
+    const leave = await leaveService.adjustDates(Number(req.params.id), req.body, { ...req.user, ip: req.ip });
+    ok(res, leave, 'Leave dates updated');
+  }),
+
+  unblock: asyncHandler(async (req, res) => {
+    const data = await leaveService.unblock(Number(req.params.employeeId), { ...req.user, ip: req.ip });
+    ok(res, data, 'Worker login unblocked (both apps)');
+  }),
+
+  cancelUnblock: asyncHandler(async (req, res) => {
+    const data = await leaveService.cancelUnblock(Number(req.params.employeeId), { ...req.user, ip: req.ip });
+    ok(res, data, 'Worker login blocked again');
+  }),
 };

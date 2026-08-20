@@ -18,6 +18,7 @@ import ItWorkers from '../pages/it/ItWorkers.jsx'
 import ItWorkerDetail from '../pages/it/ItWorkerDetail.jsx'
 import ItVerification from '../pages/it/ItVerification.jsx'
 import ItLeaves from '../pages/it/ItLeaves.jsx'
+import ItEmergencyUnblock from '../pages/it/ItEmergencyUnblock.jsx'
 import ItLetters from '../pages/it/ItLetters.jsx'
 import ItEmails from '../pages/it/ItEmails.jsx'
 import ItAccess from '../pages/it/ItAccess.jsx'
@@ -74,6 +75,7 @@ export default function AppRoutes() {
         <Route path="workers/:id" element={<ItWorkerDetail />} />
         <Route path="verification" element={<ItVerification />} />
         <Route path="leaves" element={<ItLeaves />} />
+        <Route path="emergency-unblock" element={<ItEmergencyUnblock />} />
         <Route path="letters" element={<ItLetters />} />
         <Route path="emails" element={<ItEmails />} />
         <Route path="access" element={<ItAccess />} />

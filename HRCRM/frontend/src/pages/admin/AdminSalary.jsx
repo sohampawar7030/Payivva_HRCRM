@@ -252,7 +252,7 @@ export default function AdminSalary() {
           <div className="card-header">
             <div className="card-title">🏗️ Site Wise Analysis — {MONTHS[month - 1]} {year}</div>
             <div className="flex items-center gap-8">
-              <span className="text-xs text-muted">Kontya worker ne kontya site la kiti divas present hota (date-wise calendar sathi Calendar button)</span>
+              <span className="text-xs text-muted">Which worker was present at which site for how many days — holding days are shown for workers with no site assigned (click Calendar for the date-wise view).</span>
               <button className="btn btn-secondary btn-sm" disabled={analysisLoading} onClick={loadSiteAnalysis}>{analysisLoading ? 'Loading...' : 'Refresh'}</button>
             </div>
           </div>
@@ -267,6 +267,8 @@ export default function AdminSalary() {
                     <tr>
                       <th>Employee</th>
                       <th>Total Present</th>
+                      <th>Leave Days</th>
+                      <th>Holding Days</th>
                       {siteAnalysis.employees.flatMap((e) => e.sites).reduce((acc, s) => (acc.find((x) => x.siteId === s.siteId) ? acc : [...acc, s]), []).map((s) => (
                         <th key={s.siteId}>{s.siteName}</th>
                       ))}
@@ -281,6 +283,16 @@ export default function AdminSalary() {
                           <div className="text-xs text-muted">{e.employee_id}</div>
                         </td>
                         <td><strong>{e.totalDays}</strong></td>
+                        <td>
+                          {e.leaveDays > 0 ? (
+                            <span className="badge badge-amber" title="Approved leaves (IT + Director)">🌴 {e.leaveDays}</span>
+                          ) : <span className="text-xs text-muted">—</span>}
+                        </td>
+                        <td>
+                          {e.unassignedDays > 0 ? (
+                            <span className="badge badge-amber" title="Days with no site assigned — not absent, salary continues">{e.unassignedDays}</span>
+                          ) : <span className="text-xs text-muted">—</span>}
+                        </td>
                         {siteAnalysis.employees.flatMap((x) => x.sites).reduce((acc, s) => (acc.find((x) => x.siteId === s.siteId) ? acc : [...acc, s]), []).map((s) => {
                           const st = e.sites.find((x) => x.siteId === s.siteId)
                           return <td key={s.siteId} style={{ fontWeight: st ? 600 : 400 }}>{st ? st.days : '—'}</td>
@@ -449,6 +461,18 @@ function SiteCalendarView({ employee, calendar, month, year }) {
   return (
     <div>
       <div className="chip-row mb-16">
+        {employee.unassignedDays > 0 && (
+          <span className="chip" style={{ borderColor: 'var(--gray-300)' }}>
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--gray-300)', marginRight: 6 }} />
+            No site assigned (holding) — {employee.unassignedDays} day{employee.unassignedDays > 1 ? 's' : ''}
+          </span>
+        )}
+        {employee.leaveDays > 0 && (
+          <span className="chip" style={{ borderColor: 'var(--amber-300, #fcd34d)' }}>
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: '#f59e0b', marginRight: 6 }} />
+            🌴 On leave — {employee.leaveDays} day{employee.leaveDays > 1 ? 's' : ''}
+          </span>
+        )}
         {employee.sites.map((s) => (
           <span key={s.siteId} className="chip" style={{ borderColor: siteColor(s.siteId) }}>
             <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: siteColor(s.siteId), marginRight: 6 }} />
@@ -466,7 +490,7 @@ function SiteCalendarView({ employee, calendar, month, year }) {
             style={{
               minHeight: 48, borderRadius: 6, padding: 3,
               border: '1px solid var(--gray-100)',
-              background: cell && cell.worked ? (siteColor(cell.worked.siteId) + '22') : 'transparent',
+              background: cell && cell.worked ? (cell.worked.siteId === 0 ? 'rgba(107,114,128,0.15)' : cell.worked.siteId === -1 ? 'rgba(245,158,11,0.15)' : (siteColor(cell.worked.siteId) + '22')) : 'transparent',
               color: cell && cell.worked ? 'var(--text)' : 'var(--gray-400)',
               fontWeight: cell && cell.worked ? 600 : 400,
             }}
@@ -475,14 +499,14 @@ function SiteCalendarView({ employee, calendar, month, year }) {
               <>
                 <div>{cell.day}</div>
                 {cell.worked && (
-                  <div style={{ color: siteColor(cell.worked.siteId), fontSize: 9, lineHeight: 1.1, wordBreak: 'break-word' }}>{cell.worked.siteName}</div>
+                  <div style={{ color: cell.worked.siteId === 0 ? 'var(--gray-500)' : cell.worked.siteId === -1 ? '#d97706' : siteColor(cell.worked.siteId), fontSize: 9, lineHeight: 1.1, wordBreak: 'break-word' }}>{cell.worked.siteName}</div>
                 )}
               </>
             )}
           </div>
         ))}
       </div>
-      <div className="mt-16 text-xs text-muted">Konatyacha divshi kontya site var present hota — check-in ani emergency attendance doni sources.</div>
+      <div className="mt-16 text-xs text-muted">Which site the worker was present at on each day — gray = no site assigned (holding), amber = on approved leave, colored = worked.</div>
     </div>
   )
 }

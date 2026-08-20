@@ -48,6 +48,27 @@ export const authService = {
       throw Errors.unauthorized('Invalid credentials');
     }
 
+    // Workers on approved leave (IT + Director approved) cannot log in —
+    // account is temporarily blocked for the leave duration; unblocks
+    // automatically when the leave ends.
+    if (user.role === 'worker') {
+      const leaves = await query(
+        `SELECT leaveType FROM hrcrm_leaves
+         WHERE employeeId = ? AND status = 'director_approved'
+           AND startDate <= CURDATE() AND endDate >= CURDATE()
+           AND NOT EXISTS (
+             SELECT 1 FROM employees WHERE id = ? AND emergency_unblock_until >= CURDATE()
+           )
+         LIMIT 1`,
+        [user.employeeId, user.employeeId]
+      );
+      if (leaves.length > 0) {
+        throw Errors.forbidden(
+          'Your account is temporarily blocked while you are on approved leave. According to company policy you cannot log in during your leave. Enjoy your holidays! If you face any problem, contact IT Department: Mr. Soham Pawar (+91 7030806080, sohampawar1030@gmail.com)'
+        );
+      }
+    }
+
     await query(
       `UPDATE hrcrm_users SET failedLoginAttempts = 0, lockedUntil = NULL, lastLoginAt = NOW(), status = CASE WHEN status = 'pending_onboarding' THEN 'active' ELSE status END
        WHERE id = ?`,

@@ -42,6 +42,13 @@ export default function WorkerDashboard() {
         <Link to="/worker/profile" className="btn btn-primary">Complete / View Profile</Link>
       </div>
 
+      {attendance.unassignedDays > 0 && (
+        <div className="card-pad mb-16" style={{ background: 'var(--warning-light)', border: '1px solid var(--warning)', borderRadius: 10 }}>
+          <strong className="text-warning">⏸ No site assigned to you — attendance is on holding ({attendance.unassignedDays} days this month).</strong>
+          <div className="text-sm mt-8" style={{ color: 'var(--gray-600)' }}>A site is not yet assigned to you, so attendance cannot be marked. These days do not count as absent and your salary continues normally.</div>
+        </div>
+      )}
+
       {profileCompletion.percent < 100 && (
         <div className="card-pad mb-16" style={{ background: 'var(--warning-light)', border: '1px solid var(--warning)', borderRadius: 10 }}>
           <strong className="text-warning">⚠ Your employee profile is incomplete ({profileCompletion.percent}%).</strong>
@@ -53,7 +60,7 @@ export default function WorkerDashboard() {
         <StatCard label="Profile Completion" value={`${profileCompletion.percent}%`} icon="📝" color={profileCompletion.percent === 100 ? 'green' : 'amber'} />
         <StatCard label="Verification Status" value={<StatusBadge status={status} />} icon="✅" color={status === 'fully_verified' ? 'green' : 'blue'} />
         <StatCard label="Pending Documents" value={documents.filter((d) => d.verificationStatus === 'pending').length} icon="📁" color="cyan" />
-        <StatCard label="This Month" value={`${attendance.presentDays}D`} sub={`${attendance.absentDays} absent · ${attendance.leaveDays} leave`} icon="🕐" color="purple" />
+        <StatCard label="This Month" value={`${attendance.presentDays}D`} sub={`${attendance.absentDays} absent · ${attendance.leaveDays} leave${attendance.unassignedDays ? ` · ${attendance.unassignedDays} holding` : ''}`} icon="🕐" color="purple" />
       </div>
 
       <div className="grid grid-2">

@@ -50,6 +50,21 @@ const SECTION_TABLES = {
   },
 };
 
+async function generateUniqueEmployeeCode(name) {
+  const parts = String(name || 'Employee').trim().split(/\s+/);
+  const firstChar = (parts[0] || 'E')[0].toUpperCase();
+  const lastChar = (parts.length > 1 ? parts[parts.length - 1][0] : (parts[0][1] || parts[0][0] || 'M')).toUpperCase();
+  let attempts = 0;
+  while (attempts < 100) {
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
+    const code = `PAYIVVA_${firstChar}${lastChar}${randomDigits}`;
+    const existing = await queryOne('SELECT id FROM employees WHERE employee_id = ?', [code]);
+    if (!existing) return code;
+    attempts++;
+  }
+  return `PAYIVVA_${firstChar}${lastChar}${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
 export const employeeService = {
   async getEmployeeForUser(userId) {
     const user = await queryOne('SELECT * FROM hrcrm_users WHERE id = ?', [userId]);
@@ -210,14 +225,12 @@ export const employeeService = {
       }
 
       const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding?employee=${encodeURIComponent(employeeId)}&token=${onboardingToken}`;
-      if (sendCredentials) {
-        await emailService.send({
-          to: officialEmail || personalEmail,
-          subject: 'Welcome to Payivva - Complete your profile',
-          html: `<p>Dear ${name},</p><p>Your Payivva HRCRM account has been created. Complete your employee profile using the secure link below (valid for 7 days):</p><p><a href="${link}">${link}</a></p><p>Regards,<br/>Payivva IT Department</p>`,
-          category: 'credentials',
-          relatedEntity: 'employee',
-          relatedId: empId,
+      if (sendCredentials && (officialEmail || personalEmail)) {
+        await emailService.sendWorkerOnboardingEmail({
+          workerName: name,
+          workerCode: employeeId,
+          email: officialEmail || personalEmail,
+          loginUrl: link,
         });
       }
 
@@ -448,7 +461,15 @@ export const employeeService = {
         relatedEntity: 'employee',
         relatedId: employeeId,
       });
-      if (decision === 'rejected' && workerUser.email) {
+      if (decision === 'approved' && workerUser?.email) {
+        await emailService.sendVerificationApprovedEmail({
+          workerName: workerUser.name,
+          workerCode: String(employeeId),
+          email: workerUser.email,
+          level,
+        });
+      }
+      if (decision === 'rejected' && workerUser?.email) {
         await emailService.send({
           to: workerUser.email,
           subject: `Your profile was rejected (${level === 'it' ? 'IT' : 'Director'})`,
