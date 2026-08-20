@@ -110,16 +110,18 @@ export const pdfService = {
       doc.y = 35;
     }
 
-    // 2. Document Main Title
-    const titleText = title || (
-      letterType === 'joining' ? 'JOINING LETTER' :
-      letterType === 'appointment' ? 'LETTER OF APPOINTMENT' :
-      letterType === 'increment' ? 'SALARY INCREMENT LETTER' :
-      letterType === 'promotion' ? 'PROMOTION LETTER' :
-      'OFFER OF APPOINTMENT'
-    );
+    // 2. Document Main Title (Locked to Master Official Uppercase Title)
+    const masterTitleMap = {
+      offer: 'OFFER OF APPOINTMENT',
+      joining: 'JOINING LETTER',
+      appointment: 'LETTER OF APPOINTMENT',
+      increment: 'SALARY INCREMENT LETTER',
+      promotion: 'PROMOTION LETTER',
+    };
 
-    doc.font(fontBold).fontSize(18).fillColor('#b8860b').text(titleText, { align: 'center' });
+    const docMainTitle = masterTitleMap[letterType] || 'OFFER OF APPOINTMENT';
+
+    doc.font(fontBold).fontSize(18).fillColor('#b8860b').text(docMainTitle, { align: 'center' });
     doc.moveDown(0.4);
 
     doc.font(fontBold).fontSize(12).fillColor('#000000').text('PAYIVVA TECHNOLOGIES (OPC) PRIVATE LIMITED', { align: 'center' });
