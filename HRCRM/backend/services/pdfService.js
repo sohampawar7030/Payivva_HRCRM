@@ -23,6 +23,22 @@ function formatDateDisplay(d) {
   return `${day}/${month}/${year}`;
 }
 
+function resolveAssetPath(fileRelPath) {
+  const cwd = process.cwd();
+  const candidates = [
+    path.join(cwd, 'public', fileRelPath),
+    path.join(cwd, 'frontend', 'public', fileRelPath),
+    path.join(cwd, 'dist', fileRelPath),
+    path.join(cwd, fileRelPath),
+    path.resolve(cwd, '..', 'public', fileRelPath),
+    path.resolve(cwd, '..', fileRelPath),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
 export const pdfService = {
   async generateMasterLetter({ employee, company, letterType = 'offer', title, extra = {} }) {
     const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
@@ -45,15 +61,15 @@ export const pdfService = {
     const fontRegular = chosenFont.regular;
     const fontBold = chosenFont.bold;
 
-    const logoPath = path.join(process.cwd(), 'public', 'imp_doc', 'company_logo.png');
-    const signPath = path.join(process.cwd(), 'public', 'imp_doc', 'digital_sign.png');
+    const logoPath = resolveAssetPath('imp_doc/company_logo.png');
+    const signPath = resolveAssetPath('imp_doc/digital_sign.png');
 
     const leftMargin = 40;
     const rightMargin = 555;
     const contentWidth = rightMargin - leftMargin;
 
     // 1. Prominent Company Logo Header (Dynamic Positioning, Sizing & Gap)
-    if (fs.existsSync(logoPath)) {
+    if (logoPath) {
       try {
         const logoWidth = Number(extra.logoWidth) || 300;
         const logoHeight = Number(extra.logoHeight) || 110;
@@ -266,7 +282,7 @@ export const pdfService = {
       .text('For PAYIVVA TECHNOLOGIES', leftMargin + 10, sigTableTop + 6);
     doc.text('Accepted By', leftMargin + halfWidth + 10, sigTableTop + 6);
 
-    if (fs.existsSync(signPath)) {
+    if (signPath) {
       try {
         doc.image(signPath, leftMargin + 10, sigTableTop + 25, { fit: [120, 58] });
       } catch (err) {
