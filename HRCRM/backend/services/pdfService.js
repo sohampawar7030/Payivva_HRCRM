@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
 import { queryOne } from '../config/db.js';
+import { LOGO_BASE64, SIGN_BASE64 } from './assets.js';
 
 async function getCompany() {
   return (
@@ -39,6 +40,26 @@ function resolveAssetPath(fileRelPath) {
   return null;
 }
 
+function getLogoBuffer(logoPath) {
+  if (logoPath && fs.existsSync(logoPath)) {
+    try { return fs.readFileSync(logoPath); } catch {}
+  }
+  if (LOGO_BASE64) {
+    return Buffer.from(LOGO_BASE64, 'base64');
+  }
+  return null;
+}
+
+function getSignBuffer(signPath) {
+  if (signPath && fs.existsSync(signPath)) {
+    try { return fs.readFileSync(signPath); } catch {}
+  }
+  if (SIGN_BASE64) {
+    return Buffer.from(SIGN_BASE64, 'base64');
+  }
+  return null;
+}
+
 export const pdfService = {
   async generateMasterLetter({ employee, company, letterType = 'offer', title, extra = {} }) {
     const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
@@ -64,12 +85,15 @@ export const pdfService = {
     const logoPath = resolveAssetPath('imp_doc/company_logo.png');
     const signPath = resolveAssetPath('imp_doc/digital_sign.png');
 
+    const logoBuffer = getLogoBuffer(logoPath);
+    const signBuffer = getSignBuffer(signPath);
+
     const leftMargin = 40;
     const rightMargin = 555;
     const contentWidth = rightMargin - leftMargin;
 
     // 1. Prominent Company Logo Header (Dynamic Positioning, Sizing & Gap)
-    if (logoPath) {
+    if (logoBuffer) {
       try {
         const logoWidth = Number(extra.logoWidth) || 300;
         const logoHeight = Number(extra.logoHeight) || 110;
@@ -77,7 +101,7 @@ export const pdfService = {
         const logoOffsetY = extra.logoOffsetY != null ? Number(extra.logoOffsetY) : 15;
         const logoGap = extra.logoGap != null ? Number(extra.logoGap) : 10;
         const logoX = (595.28 - logoWidth) / 2 + logoOffsetX;
-        doc.image(logoPath, logoX, logoOffsetY, { fit: [logoWidth, logoHeight] });
+        doc.image(logoBuffer, logoX, logoOffsetY, { fit: [logoWidth, logoHeight] });
         doc.y = logoOffsetY + logoHeight + logoGap;
       } catch (err) {
         doc.y = 35;
@@ -282,9 +306,9 @@ export const pdfService = {
       .text('For PAYIVVA TECHNOLOGIES', leftMargin + 10, sigTableTop + 6);
     doc.text('Accepted By', leftMargin + halfWidth + 10, sigTableTop + 6);
 
-    if (signPath) {
+    if (signBuffer) {
       try {
-        doc.image(signPath, leftMargin + 10, sigTableTop + 25, { fit: [120, 58] });
+        doc.image(signBuffer, leftMargin + 10, sigTableTop + 25, { fit: [120, 58] });
       } catch (err) {
         // fallback
       }
