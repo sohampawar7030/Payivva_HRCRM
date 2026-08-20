@@ -21,8 +21,9 @@ export const workersController = {
   }),
 
   create: asyncHandler(async (req, res) => {
+    const origin = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
     const data = await employeeService.createRegistration(
-      { ...req.body, sendCredentials: req.body.sendCredentials !== false },
+      { ...req.body, sendCredentials: req.body.sendCredentials !== false, frontendUrl: origin },
       { ...req.user, ip: req.ip }
     );
     ok(res, data, 'Worker registration created', 201);

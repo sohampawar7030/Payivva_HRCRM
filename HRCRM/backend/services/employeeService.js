@@ -168,7 +168,7 @@ export const employeeService = {
     return this.getFullProfile(employeeId, { sensitive });
   },
 
-  async createRegistration({ employeeId, name, department, designation, joiningDate, officialEmail, personalEmail, employmentType, reportingManager, salary, wagePerHour, sendCredentials }, actor) {
+  async createRegistration({ employeeId, name, department, designation, joiningDate, officialEmail, personalEmail, employmentType, reportingManager, salary, wagePerHour, sendCredentials, frontendUrl }, actor) {
     const existingEmp = await queryOne('SELECT id FROM employees WHERE employee_id = ?', [employeeId]);
     const existingUser = await queryOne('SELECT id FROM hrcrm_users WHERE employeeId = ? OR email = ?', [existingEmp?.id ?? -1, officialEmail]);
 
@@ -224,7 +224,8 @@ export const employeeService = {
         );
       }
 
-      const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding?employee=${encodeURIComponent(employeeId)}&token=${onboardingToken}`;
+      const baseUrl = frontendUrl || process.env.FRONTEND_URL || 'http://localhost:5173';
+      const link = `${baseUrl.replace(/\/$/, '')}/onboarding?employee=${encodeURIComponent(employeeId)}&token=${onboardingToken}`;
       if (sendCredentials && (officialEmail || personalEmail)) {
         await emailService.sendWorkerOnboardingEmail({
           workerName: name,
